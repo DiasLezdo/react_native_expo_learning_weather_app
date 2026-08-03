@@ -1,7 +1,9 @@
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { memo, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { memo, useCallback, useMemo } from 'react';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 
 import { Ink, Radius, Space, temperatureColor, Type } from '@/design/tokens';
 import { convertTemperature, formatWeekday, isSameLocalDay } from '@/weather/format';
@@ -24,6 +26,8 @@ export type DailyForecastListProps = {
   utcOffsetMinutes: number;
   currentTemperature: number;
   now?: number;
+  /** Omit to render the rows as plain, non-interactive summaries. */
+  onSelectDay?(day: DailyForecast): void;
 };
 
 export const DailyForecastList = memo(function DailyForecastList({
@@ -32,6 +36,7 @@ export const DailyForecastList = memo(function DailyForecastList({
   utcOffsetMinutes,
   currentTemperature,
   now = Date.now(),
+  onSelectDay,
 }: DailyForecastListProps) {
   // One shared scale across every row is the whole point of the component.
   const scale = useMemo(() => {
@@ -40,6 +45,14 @@ export const DailyForecastList = memo(function DailyForecastList({
     const max = Math.max(...days.map((d) => d.temperatureMax));
     return { min, span: Math.max(1, max - min) };
   }, [days]);
+
+  const handleSelect = useCallback(
+    (day: DailyForecast) => {
+      if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      onSelectDay?.(day);
+    },
+    [onSelectDay],
+  );
 
   return (
     <View>
@@ -58,20 +71,29 @@ export const DailyForecastList = memo(function DailyForecastList({
         return (
           <Animated.View
             key={day.date}
-            style={[
-              styles.row,
-              {
-                opacity: 0,
-                animationName: {
-                  from: { opacity: 0, transform: [{ translateX: 18 }] },
-                  to: { opacity: 1, transform: [{ translateX: 0 }] },
-                },
-                animationDuration: 520,
-                animationDelay: 120 + index * 55,
-                animationFillMode: 'forwards',
-                animationTimingFunction: 'ease-out',
+            style={{
+              opacity: 0,
+              animationName: {
+                from: { opacity: 0, transform: [{ translateX: 18 }] },
+                to: { opacity: 1, transform: [{ translateX: 0 }] },
               },
-            ]}>
+              animationDuration: 520,
+              animationDelay: 120 + index * 55,
+              animationFillMode: 'forwards',
+              animationTimingFunction: 'ease-out',
+            }}>
+          <Pressable
+            onPress={onSelectDay ? () => handleSelect(day) : undefined}
+            disabled={!onSelectDay}
+            accessibilityRole={onSelectDay ? 'button' : undefined}
+            accessibilityLabel={
+              onSelectDay
+                ? `${isToday ? 'Today' : formatWeekday(day.date, utcOffsetMinutes, true)}, high ${Math.round(
+                    convertTemperature(day.temperatureMax, unit),
+                  )} degrees, low ${Math.round(convertTemperature(day.temperatureMin, unit))} degrees`
+                : undefined
+            }
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
             <SkyText style={[Type.body, styles.day, isToday && styles.today]}>
               {isToday ? 'Today' : formatWeekday(day.date, utcOffsetMinutes)}
             </SkyText>
@@ -114,6 +136,20 @@ export const DailyForecastList = memo(function DailyForecastList({
             <SkyText style={[Type.bodySmall, styles.high]}>
               {Math.round(convertTemperature(day.temperatureMax, unit))}°
             </SkyText>
+
+            {onSelectDay && (
+              <Svg width={12} height={12} viewBox="0 0 24 24" style={styles.chevron}>
+                <Path
+                  d="M9 5 L16 12 L9 19"
+                  stroke={Ink.quaternary}
+                  strokeWidth={2.4}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </Svg>
+            )}
+          </Pressable>
           </Animated.View>
         );
       })}
@@ -128,6 +164,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Space.md,
     paddingVertical: 9,
     gap: Space.xs,
+  },
+  rowPressed: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  chevron: {
+    marginLeft: -Space.xxs,
   },
   day: {
     width: 58,

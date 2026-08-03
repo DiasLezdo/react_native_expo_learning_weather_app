@@ -147,8 +147,17 @@ export default function CitiesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { places, activePlaceId, entries, preferences, setActivePlaceId, addPlace, removePlace } =
-    useWeatherStore();
+  const {
+    places,
+    activePlaceId,
+    entries,
+    preferences,
+    locationStatus,
+    setActivePlaceId,
+    addPlace,
+    removePlace,
+    requestDeviceLocation,
+  } = useWeatherStore();
 
   const [query, setQuery] = useState('');
   // Results are stored with the query that produced them. Deriving visibility
@@ -198,6 +207,18 @@ export default function CitiesScreen() {
     },
     [router, setActivePlaceId],
   );
+
+  const handleLocate = useCallback(async () => {
+    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    const outcome = await requestDeviceLocation();
+    if (outcome.status === 'granted') {
+      if (Platform.OS !== 'web') {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+      router.push('/');
+    }
+  }, [requestDeviceLocation, router]);
 
   const handleRemove = useCallback(
     (id: string) => {
@@ -271,6 +292,41 @@ export default function CitiesScreen() {
           )}
         </GlassPanel>
 
+        <Pressable
+          onPress={handleLocate}
+          disabled={locationStatus === 'locating'}
+          accessibilityRole="button"
+          accessibilityLabel="Use my current location"
+          style={({ pressed }) => [styles.locate, { opacity: pressed ? 0.7 : 1 }]}>
+          <Svg width={18} height={18} viewBox="0 0 24 24">
+            <Path
+              d="M12 2 V5 M12 19 V22 M2 12 H5 M19 12 H22"
+              stroke={Ink.secondary}
+              strokeWidth={2}
+              strokeLinecap="round"
+            />
+            <Path
+              d="M12 5.5 a6.5 6.5 0 1 0 0 13 a6.5 6.5 0 1 0 0 -13"
+              stroke={Ink.secondary}
+              strokeWidth={2}
+              fill="none"
+            />
+            <Path d="M12 10.5 a1.5 1.5 0 1 0 0 3 a1.5 1.5 0 1 0 0 -3" fill="#7FD2FF" />
+          </Svg>
+
+          <SkyText style={[Type.bodySmall, { color: Ink.primary, flex: 1 }]}>
+            {locationStatus === 'locating' ? 'Finding you…' : 'Use my location'}
+          </SkyText>
+
+          {/* Denial is sticky — the OS won't prompt twice, so say where to fix it. */}
+          {locationStatus === 'denied' && (
+            <SkyText style={[Type.caption, { color: Ink.quaternary }]}>Enable in Settings</SkyText>
+          )}
+          {locationStatus === 'unavailable' && (
+            <SkyText style={[Type.caption, { color: Ink.quaternary }]}>Unavailable</SkyText>
+          )}
+        </Pressable>
+
         {emptyMessage && (
           <SkyText style={[Type.bodySmall, { color: Ink.tertiary, paddingHorizontal: Space.xs }]}>
             {emptyMessage}
@@ -342,6 +398,18 @@ const styles = StyleSheet.create({
     color: Ink.primary,
     fontSize: 16,
     fontWeight: '500',
+  },
+  locate: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Space.xs,
+    paddingHorizontal: Space.md,
+    paddingVertical: Space.sm,
+    borderRadius: Radius.pill,
+    backgroundColor: Glass.fillSubtle,
+    borderWidth: StyleSheet.hairlineWidth * 2,
+    borderColor: Glass.border,
+    marginBottom: Space.xxs,
   },
   result: {
     flexDirection: 'row',

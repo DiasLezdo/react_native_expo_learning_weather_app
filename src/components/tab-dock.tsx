@@ -14,7 +14,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { BottomTabBarProps } from 'expo-router/js-tabs';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Extrapolation,
@@ -157,12 +157,26 @@ const DockSlot = memo(function DockSlot({
     };
   });
 
+  /*
+   * A plain View, not a Pressable.
+   *
+   * Pressable routes through React Native's responder system, which is separate
+   * from the gesture handler driving the pan. The two don't arbitrate with each
+   * other, so lifting your finger after a drag still fired the Pressable
+   * belonging to the slot the touch *started* in — dragging Today -> Sky
+   * selected Sky and was then immediately overridden back to Today.
+   *
+   * Taps are handled by a Tap gesture on the dock instead, which competes with
+   * the pan properly. `onAccessibilityTap` keeps the slot operable by screen
+   * readers, which do not go through either touch system.
+   */
   return (
-    <Pressable
-      onPress={onPress}
+    <View
+      accessible
       accessibilityRole="tab"
       accessibilityState={{ selected: highlighted }}
       accessibilityLabel={label}
+      onAccessibilityTap={onPress}
       style={styles.slot}>
       <Animated.View style={[styles.slotInner, animatedStyle]}>
         <Icon active={highlighted} />
@@ -170,7 +184,7 @@ const DockSlot = memo(function DockSlot({
           {label.toUpperCase()}
         </SkyText>
       </Animated.View>
-    </Pressable>
+    </View>
   );
 });
 
@@ -236,9 +250,12 @@ export const TabDock = memo(function TabDock({ state, navigation }: BottomTabBar
     () =>
       Gesture.Pan()
         // Only claim the gesture once it is clearly a horizontal drag; below
-        // this threshold the touch stays with the Pressables underneath.
+        // this threshold the tap gesture below gets it instead.
         .activeOffsetX([-DRAG_THRESHOLD, DRAG_THRESHOLD])
-        .failOffsetY([-14, 14])
+        // Generous, because a thumb sliding across a dock at the bottom of the
+        // screen arcs noticeably. At the old ±14 the gesture failed part-way
+        // through plenty of legitimate drags.
+        .failOffsetY([-40, 40])
         .onBegin(() => {
           dragging.value = 1;
           lift.value = withSpring(1, SPRING);
@@ -270,6 +287,36 @@ export const TabDock = memo(function TabDock({ state, navigation }: BottomTabBar
     [lastIndex, onCross, select, dragging, lift, position, slotWidthShared, crossedIndex],
   );
 
+  /** Which slot a point along the dock falls in. */
+  const slotAt = useCallback(
+    (x: number) => {
+      'worklet';
+      const slot = slotWidthShared.value;
+      if (slot <= 0) return -1;
+      return Math.min(lastIndex, Math.max(0, Math.floor((x - DOCK_PADDING) / slot)));
+    },
+    [lastIndex, slotWidthShared],
+  );
+
+  const tap = useMemo(
+    () =>
+      Gesture.Tap().onEnd((event, success) => {
+        if (!success) return;
+        const index = slotAt(event.x);
+        if (index < 0) return;
+
+        position.value = withSpring(index, SPRING);
+        crossedIndex.value = index;
+        runOnJS(select)(index);
+      }),
+    [slotAt, select, position, crossedIndex],
+  );
+
+  // Exclusive, with the pan first: a drag wins outright, and a press that never
+  // travels far enough to activate it falls through to the tap. Both live in
+  // the gesture system, so neither can be overridden by the other.
+  const gesture = useMemo(() => Gesture.Exclusive(pan, tap), [pan, tap]);
+
   const indicatorStyle = useAnimatedStyle(() => ({
     width: slotWidth,
     transform: [
@@ -296,7 +343,7 @@ export const TabDock = memo(function TabDock({ state, navigation }: BottomTabBar
         styles.wrap,
         { paddingBottom: Math.max(insets.bottom, Space.sm), pointerEvents: 'box-none' },
       ]}>
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={gesture}>
         <View
           style={styles.dock}
           onLayout={(event) => {

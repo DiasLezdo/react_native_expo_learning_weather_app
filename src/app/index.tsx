@@ -1,65 +1,123 @@
 import * as Haptics from 'expo-haptics';
-import { useCallback, useState } from 'react';
-import { Platform, RefreshControl, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Platform,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+  type ScrollView,
+} from 'react-native';
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AlertBanner } from '@/components/alert-banner';
-import { DailyForecastList } from '@/components/daily-forecast';
-import { CompactHeader, WeatherHero } from '@/components/hero';
-import { HourlyRibbon } from '@/components/hourly-ribbon';
-import { MetricBar, MetricRing, MetricTile, SunArc, WindCompass } from '@/components/metrics';
-import { GlassSection } from '@/components/ui/glass';
-import { SkyText } from '@/components/ui/sky-text';
-import { DOCK_HEIGHT, DOCK_MARGIN, Ink, Space, Type } from '@/design/tokens';
+import { CityPage } from '@/components/city-page';
+import { DayDetailSheet } from '@/components/day-detail-sheet';
+import { PageDots } from '@/components/page-dots';
+import { DOCK_HEIGHT, DOCK_MARGIN, Space } from '@/design/tokens';
 import { StormRumble } from '@/sky/layers/effects';
 import { SkyBackground } from '@/sky/sky-background';
 import { useSkyState } from '@/sky/use-sky';
-import {
-  airQualityLabel,
-  formatClock,
-  formatTemperature,
-  formatWindDirection,
-  humidityLabel,
-  pressureTrendLabel,
-  uvCategory,
-  visibilityCategory,
-} from '@/weather/format';
+import { CURRENT_LOCATION_ID } from '@/weather/device-location';
 import { useWeatherStore } from '@/weather/store';
+import type { DailyForecast } from '@/weather/types';
 
 /**
  * Today.
  *
- * One scroll surface floating over a live simulation of the current weather.
+ * A horizontal pager, one page per saved city, over a single full-bleed sky.
+ *
+ * The sky is deliberately *not* per page. Mounting a full weather simulation
+ * for every city would multiply particle counts by the number of pages; instead
+ * one sky follows the settled page and dissolves into the next using the
+ * cross-fade `SkyBackground` already performs. Swiping therefore slides the
+ * content while the weather behind it melts from one city's to the other's.
  */
+
+/** Pages beyond this distance from the current one render as blanks. */
+const WINDOW = 1;
+
 export default function TodayScreen() {
-  const { activePlace, active, preferences, refresh, toggleUnit } = useWeatherStore();
+  const { places, activePlaceId, entries, preferences, hydrated, setActivePlaceId } =
+    useWeatherStore();
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
 
-  const snapshot = active.snapshot;
-  const sky = useSkyState(snapshot);
-  const scrollY = useSharedValue(0);
-  const [refreshing, setRefreshing] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const pagerProgress = useSharedValue(0);
+  const [selectedDay, setSelectedDay] = useState<{ placeId: string; day: DailyForecast } | null>(null);
+  /*
+   * Measured rather than taken from `useWindowDimensions`, which reports the
+   * whole window — including space this view doesn't occupy under translucent
+   * system bars. Pages sized to that would over-scroll by the difference.
+   * Seeded with the window height so the first frame is close.
+   */
+  const [pageHeight, setPageHeight] = useState(height);
 
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
+  /*
+   * The current page is derived from the store rather than mirrored into local
+   * state. Keeping a second copy meant an effect that wrote state on every
+   * change — a cascading render for something already known.
+   */
+  const activeIndex = useMemo(
+    () => Math.max(0, places.findIndex((place) => place.id === activePlaceId)),
+    [places, activePlaceId],
+  );
+
+  // Last index the pager was physically moved to. A ref, so settling a swipe
+  // doesn't schedule a render purely to record where we already are.
+  const scrolledIndex = useRef(activeIndex);
+
+  const visiblePlace = places[activeIndex] ?? places[0];
+  const sky = useSkyState(entries[visiblePlace?.id ?? '']?.snapshot);
+
+  const pagerHandler = useAnimatedScrollHandler((event) => {
+    pagerProgress.value = width > 0 ? event.contentOffset.x / width : 0;
   });
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    if (Platform.OS !== 'web') void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await refresh(activePlace.id, true);
-    setRefreshing(false);
-  }, [refresh, activePlace.id]);
+  /*
+   * Jump to whatever the rest of the app made active — the Cities screen
+   * selecting a city, or a fresh location fix pinned to the front. Skipped when
+   * the pager is already there, which is the case after a swipe.
+   *
+   * `pagerProgress` needs no manual update: RN emits scroll events for
+   * programmatic scrolls too, so the handler above keeps the dots in step.
+   */
+  useEffect(() => {
+    if (scrolledIndex.current === activeIndex) return;
+    scrolledIndex.current = activeIndex;
+    scrollRef.current?.scrollTo({ x: activeIndex * width, animated: false });
+  }, [activeIndex, width]);
 
-  // Panel inner width, used by SVG components that need explicit dimensions.
+  const onMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const next = Math.round(event.nativeEvent.contentOffset.x / Math.max(1, width));
+      if (next === activeIndex) return;
+
+      // Record it first, so the effect above treats this as already handled.
+      scrolledIndex.current = next;
+
+      const place = places[next];
+      if (place) {
+        setActivePlaceId(place.id);
+        if (Platform.OS !== 'web') void Haptics.selectionAsync();
+      }
+    },
+    [width, activeIndex, places, setActivePlaceId],
+  );
+
   const panelWidth = width - Space.lg * 2 - Space.md * 2;
-  const today = snapshot?.daily[0];
+  const locationIndex = places.findIndex((place) => place.id === CURRENT_LOCATION_ID);
+
+  const selectedSnapshot = selectedDay ? entries[selectedDay.placeId]?.snapshot : undefined;
+  const selectedPlace = places.find((place) => place.id === selectedDay?.placeId);
 
   return (
     <StormRumble active={sky.condition === 'thunderstorm' && preferences.motionEnabled}>
-      <View style={styles.root}>
+      <View
+        style={styles.root}
+        onLayout={(event) => setPageHeight(event.nativeEvent.layout.height)}>
         <SkyBackground
           state={sky}
           width={width}
@@ -68,217 +126,55 @@ export default function TodayScreen() {
           motion={preferences.motionEnabled}
         />
 
-        <Animated.ScrollView
-          onScroll={scrollHandler}
-          scrollEventThrottle={16}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingTop: insets.top + Space.md,
-              paddingBottom: insets.bottom + DOCK_HEIGHT + DOCK_MARGIN + Space.xl,
-            },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#FFFFFF"
-              colors={['#FFFFFF']}
-              progressBackgroundColor="rgba(255,255,255,0.15)"
-            />
-          }>
-          {!snapshot ? (
-            <View style={styles.loading}>
-              <Animated.View
-                style={{
-                  animationName: {
-                    '0%': { opacity: 0.35, transform: [{ scale: 0.96 }] },
-                    '50%': { opacity: 1, transform: [{ scale: 1 }] },
-                    '100%': { opacity: 0.35, transform: [{ scale: 0.96 }] },
-                  },
-                  animationDuration: 1600,
-                  animationIterationCount: 'infinite',
-                  animationTimingFunction: 'ease-in-out',
-                }}>
-                <SkyText style={[Type.heading, { color: Ink.secondary }]}>
-                  {active.error ?? `Reading the sky over ${activePlace.name}…`}
-                </SkyText>
-              </Animated.View>
-            </View>
-          ) : (
-            <>
-              <WeatherHero
-                place={snapshot.place}
-                current={snapshot.current}
-                today={today}
-                unit={preferences.unit}
-                scrollY={scrollY}
-                onToggleUnit={toggleUnit}
-              />
-
-              {snapshot.alerts.map((alert, index) => (
-                <AlertBanner key={alert.id} alert={alert} index={index} />
-              ))}
-
-              <GlassSection title="Next 24 hours" index={0} contentStyle={styles.ribbonContent}>
-                <HourlyRibbon
-                  hours={snapshot.hourly}
-                  unit={preferences.unit}
-                  utcOffsetMinutes={snapshot.place.utcOffsetMinutes}
-                  use24Hour={preferences.use24Hour}
+        {/* Nothing renders until persisted cities are known, so the pager
+            never builds pages for the defaults and then rebuilds them. */}
+        {hydrated && (
+          <Animated.ScrollView
+            ref={scrollRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={pagerHandler}
+            onMomentumScrollEnd={onMomentumEnd}
+            scrollEventThrottle={16}
+            // Each page owns a vertical scroll view; without this the pager
+            // steals ambiguous diagonal drags on Android.
+            directionalLockEnabled>
+            {places.map((place, index) =>
+              Math.abs(index - activeIndex) <= WINDOW ? (
+                <CityPage
+                  key={place.id}
+                  place={place}
+                  width={width}
+                  height={pageHeight}
+                  panelWidth={panelWidth}
+                  sunProgress={sky.sunProgress}
+                  onSelectDay={(day) => setSelectedDay({ placeId: place.id, day })}
                 />
-              </GlassSection>
+              ) : (
+                // Placeholder keeps the pager's geometry correct without
+                // mounting a screenful of views for a city you can't see.
+                <View key={place.id} style={{ width, height: pageHeight }} />
+              ),
+            )}
+          </Animated.ScrollView>
+        )}
 
-              <GlassSection title="10-day forecast" index={1}>
-                <DailyForecastList
-                  days={snapshot.daily}
-                  unit={preferences.unit}
-                  utcOffsetMinutes={snapshot.place.utcOffsetMinutes}
-                  currentTemperature={snapshot.current.temperature}
-                />
-              </GlassSection>
+        <PageDots
+          count={places.length}
+          progress={pagerProgress}
+          locationIndex={locationIndex}
+          bottom={insets.bottom + DOCK_HEIGHT + DOCK_MARGIN + Space.sm}
+        />
 
-              {today && (
-                <GlassSection
-                  title="Daylight"
-                  index={2}
-                  accessory={
-                    <SkyText style={[Type.caption, { color: Ink.secondary }]}>
-                      {formatDaylight(today.sunrise, today.sunset)}
-                    </SkyText>
-                  }
-                  contentStyle={styles.sunContent}>
-                  <SunArc
-                    progress={sky.sunProgress}
-                    width={panelWidth}
-                    sunriseLabel={formatClock(
-                      today.sunrise,
-                      snapshot.place.utcOffsetMinutes,
-                      preferences.use24Hour,
-                    )}
-                    sunsetLabel={formatClock(
-                      today.sunset,
-                      snapshot.place.utcOffsetMinutes,
-                      preferences.use24Hour,
-                    )}
-                  />
-                </GlassSection>
-              )}
-
-              <View style={styles.grid}>
-                <MetricTile
-                  label="UV Index"
-                  index={3}
-                  footer={`${uvCategory(snapshot.current.uvIndex)}${
-                    snapshot.current.uvIndex >= 6 ? ' · cover up' : ''
-                  }`}>
-                  <MetricRing
-                    progress={snapshot.current.uvIndex / 11}
-                    value={`${Math.round(snapshot.current.uvIndex)}`}
-                    caption="of 11"
-                    colors={['#FFD152', '#FF5E4D']}
-                  />
-                </MetricTile>
-
-                <MetricTile
-                  label="Wind"
-                  index={4}
-                  footer={`From ${formatWindDirection(snapshot.current.windDirection)} · gusts ${Math.round(
-                    snapshot.current.windGust,
-                  )} km/h`}>
-                  <WindCompass
-                    direction={snapshot.current.windDirection}
-                    speed={`${Math.round(snapshot.current.windSpeed)}`}
-                    gust="km/h"
-                  />
-                </MetricTile>
-              </View>
-
-              <View style={styles.grid}>
-                <MetricTile
-                  label="Humidity"
-                  index={5}
-                  footer={humidityLabel(
-                    snapshot.current.humidity,
-                    snapshot.current.dewPoint,
-                    preferences.unit,
-                  )}>
-                  <MetricRing
-                    progress={snapshot.current.humidity / 100}
-                    value={`${snapshot.current.humidity}%`}
-                    colors={['#7FD2FF', '#3FD6C4']}
-                  />
-                </MetricTile>
-
-                <MetricTile
-                  label="Visibility"
-                  index={6}
-                  footer={visibilityCategory(snapshot.current.visibility)}>
-                  <MetricRing
-                    progress={Math.min(1, snapshot.current.visibility / 24)}
-                    value={`${snapshot.current.visibility}`}
-                    caption="km"
-                    colors={['#B7A2FF', '#7FD2FF']}
-                  />
-                </MetricTile>
-              </View>
-
-              <View style={styles.grid}>
-                <MetricTile
-                  label="Pressure"
-                  index={7}
-                  footer={pressureTrendLabel(snapshot.current.pressure)}>
-                  <MetricBar
-                    // Typical sea-level range, 980–1040 hPa.
-                    progress={(snapshot.current.pressure - 980) / 60}
-                    value={`${snapshot.current.pressure}`}
-                    leftLabel="980"
-                    rightLabel="1040"
-                  />
-                </MetricTile>
-
-                {snapshot.airQuality ? (
-                  <MetricTile
-                    label="Air quality"
-                    index={8}
-                    footer={`${airQualityLabel(snapshot.airQuality.category)} · PM2.5 ${
-                      snapshot.airQuality.pm25
-                    }`}>
-                    <MetricRing
-                      progress={Math.min(1, snapshot.airQuality.index / 100)}
-                      value={`${snapshot.airQuality.index}`}
-                      caption="EAQI"
-                      colors={['#8BE06B', '#FFD152']}
-                    />
-                  </MetricTile>
-                ) : (
-                  <MetricTile label="Feels like" index={8} footer="Adjusted for wind and humidity">
-                    <SkyText style={Type.display}>
-                      {formatTemperature(snapshot.current.feelsLike, preferences.unit)}
-                    </SkyText>
-                  </MetricTile>
-                )}
-              </View>
-
-              <SkyText style={[Type.caption, styles.footer]}>
-                Updated {formatClock(snapshot.fetchedAt, snapshot.place.utcOffsetMinutes, preferences.use24Hour)}
-                {'  ·  '}
-                Pull to refresh
-              </SkyText>
-            </>
-          )}
-        </Animated.ScrollView>
-
-        {/* Rendered after the scroll view so it paints above it without
-            relying on zIndex, which Android honours inconsistently. */}
-        {snapshot && (
-          <CompactHeader
-            place={snapshot.place}
-            current={snapshot.current}
+        {selectedDay && selectedSnapshot && selectedPlace && (
+          <DayDetailSheet
+            day={selectedDay.day}
+            hourly={selectedSnapshot.hourly}
+            place={selectedPlace}
             unit={preferences.unit}
-            scrollY={scrollY}
-            topInset={insets.top}
+            use24Hour={preferences.use24Hour}
+            onClose={() => setSelectedDay(null)}
           />
         )}
       </View>
@@ -286,41 +182,8 @@ export default function TodayScreen() {
   );
 }
 
-/** "13h 42m of daylight" for the section accessory. */
-function formatDaylight(sunrise: number, sunset: number) {
-  const minutes = Math.max(0, Math.round((sunset - sunrise) / 60_000));
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ${minutes % 60}m of light`;
-}
-
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  content: {
-    paddingHorizontal: Space.lg,
-    gap: Space.md,
-  },
-  ribbonContent: {
-    paddingHorizontal: 0,
-    marginHorizontal: -Space.md,
-  },
-  sunContent: {
-    paddingHorizontal: Space.md,
-  },
-  grid: {
-    flexDirection: 'row',
-    gap: Space.md,
-  },
-  loading: {
-    flex: 1,
-    minHeight: 400,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  footer: {
-    textAlign: 'center',
-    color: Ink.quaternary,
-    marginTop: Space.xs,
   },
 });
