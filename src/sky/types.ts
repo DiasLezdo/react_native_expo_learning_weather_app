@@ -29,6 +29,12 @@ export type SkyState = {
   sunProgress: number;
   /** 0 = new moon, 0.5 = full. Shapes the moon's terminator at night. */
   moonPhase: number;
+  /**
+   * Signed latitude. Aurora is the only layer that needs it — the phenomenon
+   * is confined to high latitudes, and drawing curtains over Chennai would be
+   * pure fantasy.
+   */
+  latitude: number;
   /** Seeds every particle field so a given place always renders the same sky. */
   seed: number;
 };

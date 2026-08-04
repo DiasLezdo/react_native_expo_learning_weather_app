@@ -112,6 +112,35 @@ export type DailyForecast = {
   moonPhase: number;
 };
 
+/**
+ * One minute of the next hour.
+ *
+ * Minute-level nowcasting is what answers "do I need to wait five minutes
+ * before leaving?" — the question a forecast in hours cannot. Providers that
+ * offer it: Open-Meteo (`minutely_15`), OpenWeather One Call (`minutely`),
+ * AccuWeather (MinuteCast). Optional, because plenty of sources have none.
+ */
+export type MinutelyForecast = {
+  /** Epoch ms, on the minute. */
+  time: number;
+  /** Rate in mm/h — an intensity, not an accumulation. */
+  intensity: number;
+};
+
+/**
+ * Yesterday, for comparison.
+ *
+ * "4° warmer than yesterday" is the comparison people actually make, and it
+ * needs a number no forecast endpoint returns — it comes from a historical or
+ * time-machine endpoint. Optional for that reason.
+ */
+export type YesterdaySummary = {
+  temperatureMax: number;
+  temperatureMin: number;
+  /** Temperature at this same clock time yesterday, which is the fair compare. */
+  temperatureAtSameHour: number;
+};
+
 export type AirQuality = {
   /** European AQI scale. */
   index: number;
@@ -137,6 +166,9 @@ export type WeatherSnapshot = {
   current: CurrentWeather;
   hourly: HourlyForecast[];
   daily: DailyForecast[];
+  /** Next 60 minutes, one entry per minute. Absent if unsupported. */
+  minutely?: MinutelyForecast[];
+  yesterday?: YesterdaySummary;
   airQuality?: AirQuality;
   alerts: WeatherAlert[];
   /** When this snapshot was produced, for staleness display. */

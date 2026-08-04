@@ -1,7 +1,11 @@
 import * as Haptics from 'expo-haptics';
 import { memo, useCallback, useState } from 'react';
 import { Platform, RefreshControl, StyleSheet, View } from 'react-native';
-import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+  type SharedValue,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { DOCK_HEIGHT, DOCK_MARGIN, Ink, Space, Type } from '@/design/tokens';
@@ -15,6 +19,8 @@ import {
   uvCategory,
   visibilityCategory,
 } from '@/weather/format';
+import { useSkyState } from '@/sky/use-sky';
+import { hasMinutelySignal } from '@/weather/minutely';
 import { useWeatherStore } from '@/weather/store';
 import type { DailyForecast, Place } from '@/weather/types';
 import { AlertBanner } from './alert-banner';
@@ -23,6 +29,8 @@ import { ErrorState } from './error-state';
 import { CompactHeader, WeatherHero } from './hero';
 import { HourlyRibbon } from './hourly-ribbon';
 import { MetricBar, MetricRing, MetricTile, SunArc, WindCompass } from './metrics';
+import { PrecipitationStrip } from './precipitation-strip';
+import { ShareButton } from './share-card';
 import { GlassSection } from './ui/glass';
 import { SkyText } from './ui/sky-text';
 
@@ -36,28 +44,37 @@ import { SkyText } from './ui/sky-text';
 
 export type CityPageProps = {
   place: Place;
-  width: number;
   /**
-   * Page height, measured from the pager.
+   * Sizing lives on the pager's page wrapper, not here.
    *
-   * Required, not optional. A vertical ScrollView nested inside a horizontal
-   * one has no bounded height to scroll within unless its page gives it one —
-   * it simply lays out at full content height and never scrolls at all.
+   * The wrapper is permanent and fixed-size; this component mounts and unmounts
+   * inside it as the window moves. That keeps the horizontal scroll container's
+   * children constant, which matters because changing a scroll-snap
+   * container's children makes the browser re-evaluate its snap position — and
+   * that showed up as the pager jumping to another page mid-swipe.
+   *
+   * `flex: 1` against that fixed height is also what bounds the vertical
+   * ScrollView below; without a bounded height it lays out at full content
+   * height and never scrolls.
    */
-  height: number;
   /** Panel inner width for SVG components that need explicit dimensions. */
   panelWidth: number;
   /** Sun progress for this city, for the daylight arc. */
   sunProgress: number;
+  /**
+   * Shared with the pager's single sky so it can parallax. Written by whichever
+   * page is being scrolled — and only one ever is, since the others aren't
+   * under the finger.
+   */
+  skyScrollY?: SharedValue<number>;
   onSelectDay(day: DailyForecast): void;
 };
 
 export const CityPage = memo(function CityPage({
   place,
-  width,
-  height,
   panelWidth,
   sunProgress,
+  skyScrollY,
   onSelectDay,
 }: CityPageProps) {
   const { entries, preferences, refresh, toggleUnit } = useWeatherStore();
@@ -65,11 +82,15 @@ export const CityPage = memo(function CityPage({
 
   const entry = entries[place.id] ?? { loading: true };
   const snapshot = entry.snapshot;
+  // Same derivation the pager does for the backdrop; memoised, so deriving it
+  // again here costs nothing and keeps the share card's palette in step.
+  const sky = useSkyState(snapshot);
   const scrollY = useSharedValue(0);
   const [refreshing, setRefreshing] = useState(false);
 
   const scrollHandler = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
+    if (skyScrollY) skyScrollY.value = event.contentOffset.y;
   });
 
   const onRefresh = useCallback(async () => {
@@ -82,7 +103,7 @@ export const CityPage = memo(function CityPage({
   const today = snapshot?.daily[0];
 
   return (
-    <View style={{ width, height }}>
+    <View style={styles.page}>
       <Animated.ScrollView
         onScroll={scrollHandler}
         scrollEventThrottle={16}
@@ -138,6 +159,7 @@ export const CityPage = memo(function CityPage({
               today={today}
               unit={preferences.unit}
               scrollY={scrollY}
+              yesterdayAtSameHour={snapshot.yesterday?.temperatureAtSameHour}
               onToggleUnit={toggleUnit}
             />
 
@@ -154,6 +176,17 @@ export const CityPage = memo(function CityPage({
             {snapshot.alerts.map((alert, index) => (
               <AlertBanner key={alert.id} alert={alert} index={index} />
             ))}
+
+            {/* Only when there is precipitation in the window — a flat hour of
+                nothing on a clear day is noise. */}
+            {hasMinutelySignal(snapshot.minutely) && snapshot.minutely && (
+              <GlassSection title="Next hour" index={0} contentStyle={styles.minutelyContent}>
+                <PrecipitationStrip
+                  minutely={snapshot.minutely}
+                  condition={snapshot.current.condition}
+                />
+              </GlassSection>
+            )}
 
             <GlassSection title="Next 24 hours" index={0} contentStyle={styles.ribbonContent}>
               <HourlyRibbon
@@ -296,6 +329,14 @@ export const CityPage = memo(function CityPage({
               )}
             </View>
 
+            <ShareButton
+              place={snapshot.place}
+              current={snapshot.current}
+              today={today}
+              sky={sky}
+              unit={preferences.unit}
+            />
+
             <SkyText style={[Type.caption, styles.footer]}>
               Updated{' '}
               {formatClock(snapshot.fetchedAt, snapshot.place.utcOffsetMinutes, preferences.use24Hour)}
@@ -329,6 +370,9 @@ function formatDaylight(sunrise: number, sunset: number) {
 }
 
 const styles = StyleSheet.create({
+  page: {
+    flex: 1,
+  },
   content: {
     paddingHorizontal: Space.lg,
     gap: Space.md,
@@ -336,6 +380,9 @@ const styles = StyleSheet.create({
   ribbonContent: {
     paddingHorizontal: 0,
     marginHorizontal: -Space.md,
+  },
+  minutelyContent: {
+    paddingHorizontal: 0,
   },
   sunContent: {
     paddingHorizontal: Space.md,

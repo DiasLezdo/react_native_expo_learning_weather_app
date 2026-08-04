@@ -9,6 +9,7 @@ import type {
   CurrentWeather,
   DailyForecast,
   HourlyForecast,
+  MinutelyForecast,
   Place,
   WeatherAlert,
   WeatherCondition,
@@ -546,15 +547,82 @@ function buildSnapshot(place: Place, now: number): WeatherSnapshot {
     observedAt: now,
   };
 
+  /*
+   * Yesterday, from the same climate model run a day earlier. A real adapter
+   * gets this from a historical endpoint; the shape is what matters.
+   */
+  const yesterdayClimate = climateFor(place, now - DAY_MS);
+  const yesterdayHour = localHours(now - DAY_MS, offset);
+  const yesterdaySun = computeSunTimes(now - DAY_MS, latitude, offset);
+  const yesterdaySunriseHour = localHours(yesterdaySun.sunrise, offset);
+  const yesterdayMean = yesterdayClimate.baseTemp;
+
+  const yesterday = {
+    temperatureMax: round(yesterdayMean + yesterdayClimate.swing / 2, 1),
+    temperatureMin: round(yesterdayMean - yesterdayClimate.swing / 2, 1),
+    temperatureAtSameHour: round(
+      yesterdayMean + diurnalOffset(yesterdayHour, yesterdaySunriseHour, yesterdayClimate.swing),
+      1,
+    ),
+  };
+
   return {
     place,
     current,
     hourly,
     daily,
+    minutely: buildMinutely(rng, current.condition, Math.floor(now / 60_000) * 60_000),
+    yesterday,
     airQuality: buildAirQuality(rng, current.condition),
     alerts: buildAlerts(rng, current.condition, now),
     fetchedAt: now,
   };
+}
+
+/**
+ * Sixty minutes of precipitation for the hour ahead.
+ *
+ * Shaped as a single event with a rise and a decay rather than random noise,
+ * because that is how a shower actually behaves and it is what makes
+ * "stopping in 12 minutes" mean something. The phase is seeded per hour, so a
+ * given hour always tells the same story.
+ */
+function buildMinutely(
+  rng: Rng,
+  condition: WeatherCondition,
+  startOfMinute: number,
+): MinutelyForecast[] {
+  const profile = PROFILE[condition];
+  const minutes: MinutelyForecast[] = [];
+
+  if (profile.precip <= 0) {
+    for (let i = 0; i < 60; i++) minutes.push({ time: startOfMinute + i * 60_000, intensity: 0 });
+    return minutes;
+  }
+
+  // Where in its life cycle the event currently is: <0 hasn't begun, >60 has
+  // already finished.
+  const onset = range(rng, -35, 30);
+  const duration = range(rng, 18, 70);
+  const peak = profile.precip * range(rng, 0.7, 1.4);
+
+  for (let i = 0; i < 60; i++) {
+    const t = (i - onset) / duration;
+    let intensity = 0;
+
+    if (t > 0 && t < 1) {
+      // Asymmetric bell: builds faster than it clears, like a real shower.
+      const shape = t < 0.35 ? t / 0.35 : 1 - (t - 0.35) / 0.65;
+      intensity = peak * Math.max(0, shape) ** 1.4;
+      // Light texture, never enough to punch through the wet threshold on its
+      // own — the summary must not see phantom starts and stops.
+      intensity *= range(rng, 0.85, 1.15);
+    }
+
+    minutes.push({ time: startOfMinute + i * 60_000, intensity: round(Math.max(0, intensity), 2) });
+  }
+
+  return minutes;
 }
 
 /** Most frequent value, used to summarise a day from its hours. */

@@ -12,7 +12,7 @@ import { StormRumble } from '@/sky/layers/effects';
 import { SkyBackground } from '@/sky/sky-background';
 import { useSkyState } from '@/sky/use-sky';
 import type { SkyQuality, SkyState } from '@/sky/types';
-import { useWeatherStore } from '@/weather/store';
+import { useWeatherStore, type MotionPreference } from '@/weather/store';
 import { ALL_CONDITIONS, CONDITION_LABEL, type DayPart, type WeatherCondition } from '@/weather/types';
 
 /**
@@ -43,6 +43,23 @@ const WINDS = [
   { value: 58, label: 'Gale' },
 ];
 
+/**
+ * Latitude is previewable because it changes what the sky can contain — aurora
+ * only exists above ~55°, and otherwise it would only ever be visible by first
+ * switching to a Nordic city.
+ */
+const LATITUDES = [
+  { value: 10, label: 'Tropical' },
+  { value: 40, label: 'Temperate' },
+  { value: 65, label: 'Polar' },
+];
+
+const MOTION_OPTIONS: { value: MotionPreference; label: string }[] = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'on', label: 'Always on' },
+  { value: 'off', label: 'Off' },
+];
+
 const QUALITIES: { value: SkyQuality; label: string }[] = [
   { value: 'high', label: 'High' },
   { value: 'balanced', label: 'Balanced' },
@@ -52,7 +69,8 @@ const QUALITIES: { value: SkyQuality; label: string }[] = [
 export default function SkyScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { activePlace, active, preferences, setPreference } = useWeatherStore();
+  const { activePlace, active, preferences, motionEnabled, systemReducedMotion, setPreference } =
+    useWeatherStore();
 
   const liveSky = useSkyState(active.snapshot);
 
@@ -65,14 +83,14 @@ export default function SkyScreen() {
   const patch = (next: Partial<SkyState>) => setOverride((prev) => ({ ...(prev ?? {}), ...next }));
 
   return (
-    <StormRumble active={sky.condition === 'thunderstorm' && preferences.motionEnabled}>
+    <StormRumble active={sky.condition === 'thunderstorm' && motionEnabled}>
       <View style={styles.root}>
         <SkyBackground
           state={sky}
           width={width}
           height={height}
           quality={preferences.quality}
-          motion={preferences.motionEnabled}
+          motion={motionEnabled}
         />
 
         <ScrollView
@@ -149,7 +167,18 @@ export default function SkyScreen() {
             />
           </GlassSection>
 
-          <GlassSection title="Active layers" index={4} contentStyle={styles.sectionContent}>
+          <GlassSection title="Latitude" index={4} contentStyle={styles.sectionContent}>
+            <SegmentedControl
+              options={LATITUDES.map((l) => ({ value: String(l.value), label: l.label }))}
+              value={String(nearest(LATITUDES.map((l) => l.value), Math.abs(sky.latitude)))}
+              onChange={(value) => patch({ latitude: Number(value) })}
+            />
+            <SkyText style={[Type.caption, { color: Ink.quaternary, marginTop: Space.xs }]}>
+              Aurora needs a clear or partly cloudy night above 55°.
+            </SkyText>
+          </GlassSection>
+
+          <GlassSection title="Active layers" index={5} contentStyle={styles.sectionContent}>
             <View style={styles.layerRow}>
               {recipe.layers.map((layer) => (
                 <View key={layer} style={styles.layerPill}>
@@ -163,7 +192,7 @@ export default function SkyScreen() {
             </SkyText>
           </GlassSection>
 
-          <GlassSection title="Performance" index={5} contentStyle={styles.sectionContent}>
+          <GlassSection title="Performance" index={6} contentStyle={styles.sectionContent}>
             <SkyText style={[Type.caption, { color: Ink.tertiary, marginBottom: Space.xs }]}>
               Lower tiers reduce particle counts. Animation runs natively, so the cost is drawing,
               not JavaScript.
@@ -173,16 +202,24 @@ export default function SkyScreen() {
               value={preferences.quality}
               onChange={(quality) => setPreference('quality', quality)}
             />
-            <View style={{ height: Space.xs }} />
-            <Toggle
-              label="Animations"
-              description="Turn off for a still sky"
-              value={preferences.motionEnabled}
-              onChange={(next) => setPreference('motionEnabled', next)}
+            <View style={{ height: Space.md }} />
+
+            <SkyText style={[Type.label, { color: Ink.tertiary, marginBottom: Space.xxs }]}>
+              ANIMATION
+            </SkyText>
+            <SkyText style={[Type.caption, { color: Ink.tertiary, marginBottom: Space.xs }]}>
+              {systemReducedMotion
+                ? 'Your device has Reduce Motion on, so Auto keeps the sky still.'
+                : 'Auto follows your device’s Reduce Motion setting.'}
+            </SkyText>
+            <SegmentedControl
+              options={MOTION_OPTIONS}
+              value={preferences.motionPreference}
+              onChange={(motionPreference) => setPreference('motionPreference', motionPreference)}
             />
           </GlassSection>
 
-          <GlassSection title="Units" index={6} contentStyle={styles.sectionContent}>
+          <GlassSection title="Units" index={7} contentStyle={styles.sectionContent}>
             <SegmentedControl
               options={[
                 { value: 'c', label: 'Celsius' },

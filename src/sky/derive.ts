@@ -79,8 +79,22 @@ export function deriveSkyState(snapshot: WeatherSnapshot, now = Date.now()): Sky
     temperature: snapshot.current.temperature,
     sunProgress,
     moonPhase: today?.moonPhase ?? 0.5,
+    latitude: snapshot.place.coordinates.latitude,
     seed: hashSeed(snapshot.place.id),
   };
+}
+
+/**
+ * Geomagnetic latitude at which aurora becomes plausible on a normal night.
+ *
+ * Real auroral ovals sit around 65–70° and push equatorward during storms;
+ * 55° is a deliberately generous floor so Oslo, Helsinki and Reykjavík all
+ * qualify without it appearing over temperate cities.
+ */
+export const AURORA_MIN_LATITUDE = 55;
+
+export function auroraPossible(state: SkyState) {
+  return state.dayPart === 'night' && Math.abs(state.latitude) >= AURORA_MIN_LATITUDE;
 }
 
 function clamp01(value: number) {
@@ -112,7 +126,8 @@ export type SkyLayerName =
   | 'cityLights'
   | 'frost'
   | 'gusts'
-  | 'dust';
+  | 'dust'
+  | 'aurora';
 
 export type SkyRecipe = {
   layers: SkyLayerName[];
@@ -125,19 +140,27 @@ export type SkyRecipe = {
 export function getSkyRecipe(state: SkyState): SkyRecipe {
   const night = state.dayPart === 'night';
   const celestial: SkyLayerName[] = night ? ['stars', 'moon'] : ['sun', 'sunRays'];
+  // Needs a clear enough sky to see through, so only the two thinnest
+  // conditions get it.
+  const aurora: SkyLayerName[] = auroraPossible(state) ? ['aurora'] : [];
 
   switch (state.condition) {
     case 'clear':
       return {
         // Shimmer only when it is genuinely hot. Gating this on UV — as it
         // was — put heat haze over cold, bright alpine days.
-        layers: [...celestial, 'clouds', ...(!night && state.temperature >= 30 ? ['shimmer' as const] : [])],
+        layers: [
+          ...celestial,
+          ...aurora,
+          'clouds',
+          ...(!night && state.temperature >= 30 ? ['shimmer' as const] : []),
+        ],
         cloudiness: 0.12,
         cloudDarkness: 0,
       };
 
     case 'partly-cloudy':
-      return { layers: [...celestial, 'clouds'], cloudiness: 0.45, cloudDarkness: 0.12 };
+      return { layers: [...celestial, ...aurora, 'clouds'], cloudiness: 0.45, cloudDarkness: 0.12 };
 
     case 'cloudy':
       return { layers: ['clouds'], cloudiness: 0.75, cloudDarkness: 0.3 };

@@ -133,6 +133,28 @@ export function airQualityLabel(category: string) {
   return category.replace('-', ' ').replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/**
+ * "4° warmer than yesterday", or null when the difference isn't worth saying.
+ *
+ * Compares like with like — this hour against the same hour yesterday, not
+ * against yesterday's high, which would read as colder every single evening.
+ * The threshold is in whole displayed degrees, so the line never contradicts
+ * the rounded numbers on screen: a 0.6°C gap that both round to the same value
+ * would otherwise claim a difference the user cannot see.
+ */
+export function compareToYesterday(
+  currentCelsius: number,
+  yesterdayCelsius: number,
+  unit: TemperatureUnit,
+): string | null {
+  const current = Math.round(convertTemperature(currentCelsius, unit));
+  const before = Math.round(convertTemperature(yesterdayCelsius, unit));
+  const delta = current - before;
+
+  if (delta === 0) return 'Same as yesterday';
+  return `${Math.abs(delta)}° ${delta > 0 ? 'warmer' : 'cooler'} than yesterday`;
+}
+
 /** Short verb phrase for the hero, e.g. "Rain easing within the hour". */
 export function conditionTagline(condition: WeatherCondition, precipitationChance: number) {
   const wet = precipitationChance > 45;

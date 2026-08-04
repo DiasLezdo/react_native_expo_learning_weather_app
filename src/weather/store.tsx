@@ -9,6 +9,8 @@ import {
   type ReactNode,
 } from 'react';
 
+import { useReducedMotion } from 'react-native-reanimated';
+
 import { loadJson, saveJson, STORAGE_KEYS } from '@/lib/storage';
 import type { SkyQuality } from '@/sky/types';
 import { CURRENT_LOCATION_ID, resolveCurrentPlace, type LocationOutcome } from './device-location';
@@ -37,19 +39,29 @@ type SnapshotEntry = {
   errorKind?: WeatherError['kind'];
 };
 
+/**
+ * `auto` follows the operating system's reduce-motion setting.
+ *
+ * It is the default, and it matters: a user who has turned reduce-motion on
+ * system-wide — very often for vestibular reasons — should not have to find a
+ * switch inside this app to stop a screen full of rain, lightning and a
+ * rumbling viewport. The explicit values exist so the choice can still be
+ * overridden either way.
+ */
+export type MotionPreference = 'auto' | 'on' | 'off';
+
 export type Preferences = {
   unit: TemperatureUnit;
   use24Hour: boolean;
   quality: SkyQuality;
-  /** Master switch honoured by every animated layer. */
-  motionEnabled: boolean;
+  motionPreference: MotionPreference;
 };
 
 const DEFAULT_PREFERENCES: Preferences = {
   unit: 'c',
   use24Hour: false,
   quality: 'high',
-  motionEnabled: true,
+  motionPreference: 'auto',
 };
 
 /** Shape written to storage. */
@@ -68,6 +80,13 @@ type WeatherStore = {
   entries: Record<string, SnapshotEntry>;
   active: SnapshotEntry;
   preferences: Preferences;
+  /**
+   * Resolved answer to "should anything be moving?" — the preference combined
+   * with the OS setting. Screens read this; they never read the preference.
+   */
+  motionEnabled: boolean;
+  /** True when the OS has reduce-motion on, so the UI can explain `auto`. */
+  systemReducedMotion: boolean;
   /** False until persisted state has been read; screens wait on it. */
   hydrated: boolean;
   locationStatus: LocationStatus;
@@ -136,6 +155,13 @@ export function WeatherStoreProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [hydrated, setHydrated] = useState(false);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>('idle');
+
+  // Reanimated already tracks the OS setting and keeps this current.
+  const systemReducedMotion = useReducedMotion();
+  const motionEnabled =
+    preferences.motionPreference === 'auto'
+      ? !systemReducedMotion
+      : preferences.motionPreference === 'on';
 
   // One in-flight request per place; a second call for the same place is a
   // no-op rather than a duplicate fetch.
@@ -305,6 +331,8 @@ export function WeatherStoreProvider({ children }: { children: ReactNode }) {
       entries,
       active,
       preferences,
+      motionEnabled,
+      systemReducedMotion,
       hydrated,
       locationStatus,
       setActivePlaceId,
@@ -322,6 +350,8 @@ export function WeatherStoreProvider({ children }: { children: ReactNode }) {
       entries,
       active,
       preferences,
+      motionEnabled,
+      systemReducedMotion,
       hydrated,
       locationStatus,
       addPlace,

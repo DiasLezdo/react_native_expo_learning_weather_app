@@ -39,7 +39,8 @@
           "locationWhenInUsePermission": "Aurora uses your location to show the weather where you are. It is never stored or shared.",
           "isAndroidBackgroundLocationEnabled": false
         }
-      ]
+      ],
+      "expo-sharing"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,9 +1,18 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+  type SharedValue,
+} from 'react-native-reanimated';
 
 import { getSkyRecipe, type SkyLayerName } from './derive';
+import { AuroraLayer } from './layers/aurora';
 import { CloudLayer, FogLayer } from './layers/clouds';
 import { MoonLayer, StarLayer, SunLayer, SunRaysLayer } from './layers/celestial';
 import {
@@ -81,6 +90,7 @@ const LAYER_COMPONENTS: Record<Exclude<SkyLayerName, 'clouds'>, React.ComponentT
   frost: FrostLayer,
   gusts: GustLayer,
   dust: DustLayer,
+  aurora: AuroraLayer,
 };
 
 const SkyScene = memo(function SkyScene({ state, width, height, quality, motion }: SceneProps) {
@@ -145,12 +155,28 @@ const SkyScene = memo(function SkyScene({ state, width, height, quality, motion 
   );
 });
 
+/**
+ * How far the sky drifts across a full parallax scroll, in px.
+ *
+ * Small on purpose. The sky is the horizon: move it too far and the content
+ * stops feeling like it is descending past a fixed world and starts feeling
+ * like the whole scene is sliding.
+ */
+const PARALLAX_DISTANCE = 54;
+const PARALLAX_SCROLL = 420;
+
 export type SkyBackgroundProps = {
   state: SkyState;
   width: number;
   height: number;
   quality?: SkyQuality;
   motion?: boolean;
+  /**
+   * Scroll offset of the content in front. When supplied, the sky rises
+   * slightly slower than the content, so scrolling reads as descending through
+   * the atmosphere rather than as sliding a card over a static picture.
+   */
+  scrollY?: SharedValue<number>;
 };
 
 export const SkyBackground = memo(function SkyBackground({
@@ -159,6 +185,7 @@ export const SkyBackground = memo(function SkyBackground({
   height,
   quality = 'high',
   motion = true,
+  scrollY,
 }: SkyBackgroundProps) {
   // Depend on the quantised inputs, not on object identity — callers build a
   // fresh state object on every render, and re-seeding the particle fields
@@ -203,14 +230,30 @@ export const SkyBackground = memo(function SkyBackground({
 
   const incomingStyle = useAnimatedStyle(() => ({ opacity: progress.value }));
 
+  const parallaxStyle = useAnimatedStyle(() => {
+    if (!scrollY) return {};
+    return {
+      transform: [
+        {
+          translateY: -interpolate(
+            scrollY.value,
+            [0, PARALLAX_SCROLL],
+            [0, PARALLAX_DISTANCE],
+            Extrapolation.CLAMP,
+          ),
+        },
+      ],
+    };
+  });
+
   return (
-    <View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }]}>
+    <Animated.View style={[StyleSheet.absoluteFill, { pointerEvents: 'none' }, parallaxStyle]}>
       {outgoing && (
         <SkyScene state={outgoing} width={width} height={height} quality={quality} motion={motion} />
       )}
       <Animated.View style={[StyleSheet.absoluteFill, outgoing ? incomingStyle : undefined]}>
         <SkyScene state={current} width={width} height={height} quality={quality} motion={motion} />
       </Animated.View>
-    </View>
+    </Animated.View>
   );
 });

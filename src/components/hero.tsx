@@ -10,6 +10,7 @@ import Animated, {
 
 import { Ink, Radius, Space, Type } from '@/design/tokens';
 import {
+  compareToYesterday,
   conditionTagline,
   convertTemperature,
   formatPlace,
@@ -37,6 +38,11 @@ export type WeatherHeroProps = {
   today?: DailyForecast;
   unit: TemperatureUnit;
   scrollY: SharedValue<number>;
+  /**
+   * Yesterday's temperature at this same hour, in °C. When present it replaces
+   * the generic tagline, because a concrete comparison beats a mood line.
+   */
+  yesterdayAtSameHour?: number;
   onToggleUnit(): void;
 };
 
@@ -46,8 +52,14 @@ export const WeatherHero = memo(function WeatherHero({
   today,
   unit,
   scrollY,
+  yesterdayAtSameHour,
   onToggleUnit,
 }: WeatherHeroProps) {
+  const yesterdayComparison =
+    yesterdayAtSameHour === undefined
+      ? null
+      : compareToYesterday(current.temperature, yesterdayAtSameHour, unit);
+
   const animatedStyle = useAnimatedStyle(() => ({
     opacity: interpolate(scrollY.value, [0, HANDOFF * 0.85], [1, 0], Extrapolation.CLAMP),
     transform: [
@@ -147,7 +159,7 @@ export const WeatherHero = memo(function WeatherHero({
         </View>
 
         <SkyText style={[Type.caption, { color: Ink.quaternary }]}>
-          {conditionTagline(current.condition, current.precipitation > 0 ? 70 : 20)}
+          {yesterdayComparison ?? conditionTagline(current.condition, current.precipitation > 0 ? 70 : 20)}
         </SkyText>
       </Animated.View>
     </Animated.View>

@@ -32,6 +32,7 @@ export const FALLBACK_SKY: SkyState = {
   temperature: 18,
   sunProgress: 0.45,
   moonPhase: 0.5,
+  latitude: 0,
   seed: hashSeed('loading'),
 };
 

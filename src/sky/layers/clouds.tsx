@@ -1,11 +1,10 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { memo, useId, useMemo } from 'react';
 import { View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import Svg, { Circle, Defs, Ellipse, RadialGradient, Stop } from 'react-native-svg';
 
 import { createRng, range } from '@/lib/rng';
-import { FILL, lerp, mixHex, scaleCount, withAlpha, type LayerProps } from './shared';
+import { FILL, lerp, mixHex, scaleCount, type LayerProps } from './shared';
 
 /**
  * Cloud and fog layers.
@@ -226,9 +225,11 @@ export const CloudLayer = memo(function CloudLayer({
 /**
  * Fog and mist.
  *
- * Bands are horizontal gradients that fade to transparent at both ends, so
- * they slide past each other with no visible edge. Layering several at
- * different speeds and opacities produces depth that a single flat scrim can't.
+ * Each bank is a very wide, very flat ellipse with a radial falloff, so it
+ * dissolves on every side. It was previously a rectangle holding a *horizontal*
+ * gradient: that faded away at the left and right ends but stopped dead at the
+ * top and bottom, drawing a pair of crisp horizontal lines across the sky
+ * wherever the band was densest. Fog has no edges.
  */
 export const FogLayer = memo(function FogLayer({
   width,
@@ -238,6 +239,8 @@ export const FogLayer = memo(function FogLayer({
   quality,
   motion,
 }: LayerProps) {
+  const uid = `fog${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
+
   const bands = useMemo(() => {
     const count = scaleCount(lerp(3, 7, state.intensity), Math.max(quality, 0.5));
     const rng = createRng(state.seed ^ 0x464f_4708);
@@ -246,13 +249,13 @@ export const FogLayer = memo(function FogLayer({
       const duration = range(rng, 26_000, 62_000);
       return {
         key: `fog-${i}`,
-        top: range(rng, -0.05, 0.95) * height,
-        height: range(rng, 0.12, 0.34) * height,
+        top: range(rng, -0.05, 0.9) * height,
+        height: range(rng, 0.16, 0.4) * height,
         width: width * range(rng, 1.4, 2.2),
         opacity: range(rng, 0.16, 0.44) * lerp(0.5, 1.15, state.intensity),
         duration,
         delay: -rng() * duration,
-        // Alternate direction so the bands shear against each other.
+        // Alternate direction so the banks shear against each other.
         reverse: i % 2 === 1,
       };
     });
@@ -292,19 +295,24 @@ export const FogLayer = memo(function FogLayer({
                   }
                 : null),
             }}>
-            <LinearGradient
-              colors={[
-                withAlpha(tint, 0),
-                withAlpha(tint, 0.55),
-                withAlpha(tint, 0.75),
-                withAlpha(tint, 0.4),
-                withAlpha(tint, 0),
-              ]}
-              locations={[0, 0.24, 0.5, 0.74, 1]}
-              start={{ x: 0, y: 0.5 }}
-              end={{ x: 1, y: 0.5 }}
-              style={{ flex: 1 }}
-            />
+            <Svg width={band.width} height={band.height}>
+              <Defs>
+                <RadialGradient id={`${uid}${band.key}`} cx="50%" cy="50%" r="50%">
+                  <Stop offset="0" stopColor={tint} stopOpacity={0.85} />
+                  <Stop offset="0.4" stopColor={tint} stopOpacity={0.6} />
+                  <Stop offset="0.7" stopColor={tint} stopOpacity={0.26} />
+                  <Stop offset="0.88" stopColor={tint} stopOpacity={0.08} />
+                  <Stop offset="1" stopColor={tint} stopOpacity={0} />
+                </RadialGradient>
+              </Defs>
+              <Ellipse
+                cx={band.width / 2}
+                cy={band.height / 2}
+                rx={band.width / 2}
+                ry={band.height / 2}
+                fill={`url(#${uid}${band.key})`}
+              />
+            </Svg>
           </Animated.View>
         );
       })}

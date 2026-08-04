@@ -153,28 +153,39 @@ export const StormRumble = memo(function StormRumble({
   active: boolean;
   children: ReactNode;
 }) {
-  if (!active) return <>{children}</>;
-
+  /*
+   * The wrapper is always rendered, even when there is no storm.
+   *
+   * Returning `<>{children}</>` when inactive changed the shape of the tree
+   * every time the weather became or stopped being a thunderstorm, which
+   * remounted everything below — including the pager, whose scroll position
+   * reset to the first city. Only the style varies now, so the tree is stable.
+   */
   return (
     <Animated.View
       style={{
         flex: 1,
-        // Held at a constant 1.012 overscan: without it the ~2px displacement
-        // would drag the full-bleed sky off its own edge and flash the root
-        // background. The scale never changes, so nothing visibly zooms.
-        transform: [{ scale: OVERSCAN }],
-        animationName: {
-          '0%': { transform: [{ translateY: 0 }, { translateX: 0 }, { scale: OVERSCAN }] },
-          '2.4%': { transform: [{ translateY: 1.8 }, { translateX: -1.2 }, { scale: OVERSCAN }] },
-          '3.0%': { transform: [{ translateY: -1.6 }, { translateX: 1.4 }, { scale: OVERSCAN }] },
-          '3.6%': { transform: [{ translateY: 1.2 }, { translateX: 0.8 }, { scale: OVERSCAN }] },
-          '4.4%': { transform: [{ translateY: -0.6 }, { translateX: -0.5 }, { scale: OVERSCAN }] },
-          '5.4%': { transform: [{ translateY: 0 }, { translateX: 0 }, { scale: OVERSCAN }] },
-          '100%': { transform: [{ translateY: 0 }, { translateX: 0 }, { scale: OVERSCAN }] },
-        },
-        animationDuration: STORM_PERIOD_MS,
-        animationIterationCount: 'infinite',
-        animationTimingFunction: 'linear',
+        ...(active
+          ? {
+              // Held at a constant 1.012 overscan: without it the ~2px
+              // displacement would drag the full-bleed sky off its own edge and
+              // flash the root background. The scale never changes, so nothing
+              // visibly zooms.
+              transform: [{ scale: OVERSCAN }],
+              animationName: {
+                '0%': { transform: [{ translateY: 0 }, { translateX: 0 }, { scale: OVERSCAN }] },
+                '2.4%': { transform: [{ translateY: 1.8 }, { translateX: -1.2 }, { scale: OVERSCAN }] },
+                '3.0%': { transform: [{ translateY: -1.6 }, { translateX: 1.4 }, { scale: OVERSCAN }] },
+                '3.6%': { transform: [{ translateY: 1.2 }, { translateX: 0.8 }, { scale: OVERSCAN }] },
+                '4.4%': { transform: [{ translateY: -0.6 }, { translateX: -0.5 }, { scale: OVERSCAN }] },
+                '5.4%': { transform: [{ translateY: 0 }, { translateX: 0 }, { scale: OVERSCAN }] },
+                '100%': { transform: [{ translateY: 0 }, { translateX: 0 }, { scale: OVERSCAN }] },
+              },
+              animationDuration: STORM_PERIOD_MS,
+              animationIterationCount: 'infinite' as const,
+              animationTimingFunction: 'linear' as const,
+            }
+          : null),
       }}>
       {children}
     </Animated.View>

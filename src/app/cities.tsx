@@ -56,7 +56,7 @@ const CityCard = memo(function CityCard({
   canRemove: boolean;
 }) {
   const { width } = useWindowDimensions();
-  const { entries, preferences } = useWeatherStore();
+  const { entries, motionEnabled } = useWeatherStore();
   const snapshot = entries[place.id]?.snapshot;
   const sky = useSkyState(snapshot);
   const now = useNow(30_000);
@@ -94,7 +94,7 @@ const CityCard = memo(function CityCard({
             width={cardWidth}
             height={CARD_HEIGHT}
             quality="battery"
-            motion={preferences.motionEnabled}
+            motion={motionEnabled}
           />
         </View>
 
@@ -152,6 +152,7 @@ export default function CitiesScreen() {
     activePlaceId,
     entries,
     preferences,
+    motionEnabled,
     locationStatus,
     setActivePlaceId,
     addPlace,
@@ -250,7 +251,7 @@ export default function CitiesScreen() {
         width={width}
         height={height}
         quality={preferences.quality}
-        motion={preferences.motionEnabled}
+        motion={motionEnabled}
       />
 
       <ScrollView
