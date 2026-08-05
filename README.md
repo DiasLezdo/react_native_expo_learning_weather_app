@@ -10,7 +10,11 @@ npm install
 npx expo start
 ```
 
-Runs in Expo Go — no development build required.
+Runs in Expo Go — no development build required (location and sharing excepted).
+
+📄 **[ARCHITECTURE.md](ARCHITECTURE.md)** — full technical documentation: architecture,
+the sky engine, performance model, every Expo API used and where, the data layer, and
+how to extend it.
 
 ---
 
