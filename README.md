@@ -5,6 +5,32 @@ current weather rather than a picture of it. Fourteen conditions, each with day,
 golden-hour and night variants, composed from independent animated layers and
 cross-faded into one another.
 
+---
+
+## 📲 Download for Android
+
+[**⬇️ Get the latest APK**](https://github.com/DiasLezdo/react_native_expo_learning_weather_app/releases/latest)
+
+<sub>Android 7.0+ · arm64-v8a and armeabi-v7a · no account required</sub>
+
+Android will warn you about installing outside the Play Store. That's expected for a
+directly distributed APK:
+
+1. Download the `.apk` on your phone
+2. Tap it — Android will ask permission to install from this source
+3. Allow, then tap **Install**
+
+> **The weather is simulated.** This build ships with a mock data source: forecasts are
+> generated locally from a climate model, not fetched from a weather service. They are
+> plausible and internally consistent, but they are not real. See
+> [plugging in the real API](ARCHITECTURE.md#the-seam).
+
+iOS isn't published yet. The project builds for it — it needs an Apple Developer account.
+
+---
+
+## Running it yourself
+
 ```bash
 npm install
 npx expo start

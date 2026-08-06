@@ -45,7 +45,15 @@
           "isAndroidBackgroundLocationEnabled": false
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "buildArchs": ["arm64-v8a", "armeabi-v7a"]
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
