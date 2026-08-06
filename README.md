@@ -11,7 +11,28 @@ cross-faded into one another.
 
 [**⬇️ Get the latest APK**](https://github.com/DiasLezdo/react_native_expo_learning_weather_app/releases/latest)
 
-<sub>Android 7.0+ · arm64-v8a and armeabi-v7a · no account required</sub>
+<sub>~56 MB · no account required · free, no ads, no tracking</sub>
+
+### Will it run on my phone?
+
+| | |
+| --- | --- |
+| **Android version** | **7.0 Nougat (API 24)** or newer |
+| **Processor** | 64-bit ARM (`arm64-v8a`) or 32-bit ARM (`armeabi-v7a`) |
+| **Built against** | Android 16 (API 36) |
+| **Screen** | Portrait, phones. No tablet-specific layout yet |
+
+In practice: **effectively every Android phone sold since about 2015.** ARM covers
+Qualcomm Snapdragon, Samsung Exynos, MediaTek Dimensity/Helio, Google Tensor and
+Unisoc — which is the entire mainstream Android market.
+
+**Not supported:** `x86` / `x86_64` devices. That means Android emulators, most
+Intel-based Chromebooks, and a handful of discontinued Intel tablets and phones
+(older Asus ZenFone, some Lenovo models). Those architectures were dropped
+deliberately — carrying them doubled the download size for hardware almost nobody
+uses.
+
+### Installing
 
 Android will warn you about installing outside the Play Store. That's expected for a
 directly distributed APK:

@@ -590,6 +590,30 @@ npm ci --include=dev --dry-run
 If a future npm or `eslint-config-expo` fixes the underlying resolution, these three
 lines can go — but only if that command still passes without them.
 
+### Android build targets
+
+Values below come from the generated Gradle project (`expo prebuild`), not from
+guesswork — the SDK levels are defaults supplied by the `expo-root-project` plugin
+rather than anything set in `app.json`.
+
+| | |
+| --- | --- |
+| `minSdkVersion` | **24** (Android 7.0 Nougat) |
+| `targetSdkVersion` / `compileSdkVersion` | **36** (Android 16) |
+| Architectures | `arm64-v8a`, `armeabi-v7a` |
+| New Architecture | Enabled (required by RN 0.86) |
+| JS engine | Hermes |
+
+`x86` and `x86_64` are excluded via `expo-build-properties`' `buildArchs`. That halved
+the APK — but it also means **preview builds will not install on a standard Android
+emulator**, which is x86_64. Use the `development` profile, or temporarily restore the
+full architecture list, when you need one.
+
+Combined with removing five unused native modules, the APK went from 111.7 MB to
+56.4 MB. The remainder is close to the floor for this stack: Hermes, React Native core,
+Reanimated, SVG and gesture-handler amount to roughly 25–30 MB of native libraries per
+architecture, and two architectures ship here.
+
 ### EAS profiles
 
 `eas.json` defines three: `development` (dev client, internal), `preview` (internal) and
