@@ -551,7 +551,55 @@ Two are **regression tests for bugs that shipped**:
 
 ---
 
-## 11. Extending
+## 11. Build notes
+
+### Why `@emnapi/*` is in devDependencies
+
+`@emnapi/core`, `@emnapi/runtime` and `@emnapi/wasi-threads` are pinned as explicit
+devDependencies. **They are not used by any code in this repo** — do not remove them
+expecting nothing to happen.
+
+They exist to work around an npm lockfile bug. The chain is:
+
+```
+eslint-config-expo → eslint-import-resolver-typescript → unrs-resolver
+  → @unrs/resolver-binding-wasm32-wasi   (optional)
+    → @emnapi/core, @emnapi/runtime, @emnapi/wasi-threads
+```
+
+Running `npm install` on Windows writes all 33 `@unrs/resolver-binding-*` platform
+packages into the lock but **drops their transitive dependencies**. `npm ci` validates
+the *entire* lock tree — including entries it would never install on the current
+platform — so it then fails everywhere with:
+
+```
+npm error `npm ci` can only install packages when your package.json and
+npm error package-lock.json are in sync.
+npm error Missing: @emnapi/core@1.10.0 from lock file
+```
+
+EAS Build runs `npm ci --include=dev`, so this fails the cloud build while everything
+works locally. Declaring the three packages explicitly forces npm to write the entries.
+
+Reproduce the check locally before pushing a build:
+
+```bash
+npm ci --include=dev --dry-run
+```
+
+If a future npm or `eslint-config-expo` fixes the underlying resolution, these three
+lines can go — but only if that command still passes without them.
+
+### EAS profiles
+
+`eas.json` defines three: `development` (dev client, internal), `preview` (internal) and
+`production` (auto-incrementing version). `preview` needs
+`"android": { "buildType": "apk" }` to produce something installable — AABs cannot be
+installed directly on a device.
+
+---
+
+## 12. Extending
 
 ### Add a weather condition
 
