@@ -1,0 +1,150 @@
+# Push a version tag, get a GitHub Release with the APK attached.
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# The whole chain runs unattended: verify, build on EAS, download the artifact,
+# publish the release. Roughly 15 minutes, most of it waiting on the build.
+#
+# Requires one repository secret, EXPO_TOKEN — see README / ARCHITECTURE.md.
+
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  # Lets you re-run a release without moving the tag, e.g. if EAS was down.
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'EAS build profile'
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+
+# A second push to the same tag should replace the run in flight, not race it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    # EAS queues on the free plan, so the wait can be much longer than the build.
+    timeout-minutes: 60
+    permissions:
+      # Required to create the release and upload the APK to it.
+      contents: write
+
+    steps:
+      # workflow_dispatch lets you pick a tag *or* a branch. A branch would
+      # otherwise produce a release tagged "main", so refuse it outright rather
+      # than publish something nonsensical.
+      - name: Require a tag
+        if: github.ref_type != 'tag'
+        run: |
+          echo "::error::Run this from a tag, not '${{ github.ref_name }}'."
+          echo "Push a tag:            git tag v1.0.0 && git push origin v1.0.0"
+          echo "Or re-run: Actions -> Run workflow -> pick the tag in the ref dropdown."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Also the canary for lockfile drift: `npm ci` is strict where `npm install`
+      # is forgiving, and it is what fails first when the lock and manifest
+      # disagree across platforms.
+      - name: Install dependencies
+        run: npm ci
+
+      # Cheap relative to a 15-minute build, and stops a broken commit becoming
+      # a published release.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+          packager: npm
+
+      - name: Build APK on EAS
+        id: build
+        env:
+          PROFILE: ${{ inputs.profile || 'preview' }}
+        run: |
+          set -euo pipefail
+          eas build \
+            --platform android \
+            --profile "$PROFILE" \
+            --non-interactive \
+            --wait \
+            --json > build.json
+
+          # `eas build --json` emits an array, one entry per platform built.
+          URL=$(node -e "
+            const b = require('./build.json');
+            const build = Array.isArray(b) ? b[0] : b;
+            const url = build?.artifacts?.applicationArchiveUrl || build?.artifacts?.buildUrl;
+            if (!url) { console.error('No artifact URL in build output'); process.exit(1); }
+            console.log(url);
+          ")
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Artifact: $URL"
+
+      # A stable filename, deliberately unversioned, so
+      # /releases/latest/download/aurora.apk keeps working for every future
+      # release without anyone editing the README.
+      - name: Download APK
+        run: |
+          set -euo pipefail
+          curl -fsSL -o aurora.apk "${{ steps.build.outputs.url }}"
+          ls -lh aurora.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: aurora.apk
+          tag_name: ${{ github.ref_name }}
+          name: Aurora ${{ github.ref_name }}
+          # GitHub appends the auto-generated commit summary beneath this.
+          generate_release_notes: true
+          body: |
+            A weather app whose background is a live simulation of the current
+            weather rather than a picture of it — 14 conditions, each with day,
+            golden-hour and night variants, built from independent animated
+            layers that cross-fade into one another.
+
+            ### Install
+
+            Download **aurora.apk** below. Android will warn about installing
+            outside the Play Store; that is expected for a directly distributed
+            APK.
+
+            | | |
+            | --- | --- |
+            | Android | 7.0 Nougat (API 24) or newer |
+            | Processor | 64-bit ARM (`arm64-v8a`) or 32-bit ARM (`armeabi-v7a`) |
+            | Size | ~56 MB |
+
+            Not compatible with `x86`/`x86_64` — Android emulators and most
+            Intel Chromebooks.
+
+            > **The weather is simulated.** Forecasts are generated on-device
+            > from a climate model, not fetched from a weather service. They are
+            > plausible and internally consistent, but they are not real.

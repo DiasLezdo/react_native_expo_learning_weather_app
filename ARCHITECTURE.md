@@ -614,6 +614,38 @@ Combined with removing five unused native modules, the APK went from 111.7 MB to
 Reanimated, SVG and gesture-handler amount to roughly 25–30 MB of native libraries per
 architecture, and two architectures ship here.
 
+### Releasing
+
+`.github/workflows/release-android.yml` turns a version tag into a published
+GitHub Release with the APK attached:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+It then runs unattended — typecheck, lint, tests, EAS build, download the artifact,
+publish the release. About 15 minutes, nearly all of it waiting on the build queue.
+
+**One-time setup.** The workflow needs an Expo access token:
+
+1. [expo.dev/settings/access-tokens](https://expo.dev/settings/access-tokens) → create a token
+2. Repo → Settings → Secrets and variables → Actions → New repository secret
+3. Name it `EXPO_TOKEN`, paste the value
+
+Notes:
+
+- The APK is always attached as **`aurora.apk`**, deliberately unversioned, so
+  `/releases/latest/download/aurora.apk` keeps working across releases without the
+  README ever being edited.
+- The workflow refuses to run from a branch. `workflow_dispatch` offers branches as
+  well as tags in its ref picker, and a branch would produce a release tagged `main`.
+- `npm ci` runs before anything else, which also makes this the earliest warning of
+  lockfile drift — the failure mode described above under **Why `@emnapi/*` is in
+  devDependencies**.
+- Typecheck, lint and tests all gate the build. They cost about a minute against a
+  fifteen-minute build, and stop a broken commit becoming a published release.
+
 ### EAS profiles
 
 `eas.json` defines three: `development` (dev client, internal), `preview` (internal) and
